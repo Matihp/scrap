@@ -10,7 +10,7 @@ class ScraperService {
 
   async initialize() {
     this.browser = await puppeteer.launch({
-      headless: false, // Desactivar el modo headless
+      headless: true, 
       defaultViewport: { width: 1920, height: 1080 },
       args: ['--window-size=1920,1080']
     });
@@ -60,21 +60,18 @@ class ScraperService {
 
       products.forEach((product) => {
         try {
-          const linkElement = product.document.querySelector('div[class^="vtex-product-summary-2-x-clearLink--product-card"]');
+          const linkElement = product.querySelector('a');
           if (!linkElement) return;
 
           const url = linkElement.href;
-          console.log(url);
           if (seenUrls.has(url)) return;
           seenUrls.add(url);
 
           // Obtener todos los componentes del precio
-          const integerPart1 = product.querySelector('span[class*="currencyInteger--summary"]')?.textContent.trim() || '';
-          const decimalPart = product.querySelector('span[class*="currencyGroup--summary"]')?.textContent.trim() || '';
-          const integerPart2 = product.querySelector('span[class*="currencyInteger--summary"]:nth-of-type(2)')?.textContent.trim() || '';
+          const integerPart1 = product.querySelector('span[class*="currencyContainer--summary"]')?.textContent.trim() || '';
 
           // Construir el precio completo
-          const fullPrice = `${integerPart1}${decimalPart}${integerPart2}`;
+          const fullPrice = `${integerPart1}`;
 
           const imageElement = product.querySelector('img');
           const titleElement = product.querySelector('h3');
