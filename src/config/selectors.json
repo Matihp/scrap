@@ -1,17 +1,8 @@
 {
   "sporting.com.ar": {
-    "price": "#gallery-layout-container > div:nth-child({index}) > section > a > article > div.vtex-flex-layout-0-x-flexRow.vtex-flex-layout-0-x-flexRow--product-price-container > div > div.pr0.items-stretch.vtex-flex-layout-0-x-stretchChildrenWidth.flex > div > div > span > span > span",
-    "productLink": "#gallery-layout-container > div:nth-child({index}) > section > a",
-    "imageLink": "#gallery-layout-container > div:nth-child({index}) > section > a > article > div.vtex-stack-layout-0-x-stackContainer.vtex-stack-layout-0-x-stackContainer--product-card.relative > div.vtex-stack-layout-0-x-stackItem.vtex-stack-layout-0-x-stackItem--product-card.vtex-stack-layout-0-x-stackItem--first.vtex-stack-layout-0-x-stackItem--product-card--first > div > div > div.dib.relative.vtex-product-summary-2-x-imageContainer.vtex-product-summary-2-x-imageStackContainer > img",
-    "title": "#gallery-layout-container > div:nth-child({index}) > section > a > article > div.vtex-product-summary-2-x-nameContainer.flex.items-start.justify-center.pv6 > h3",
-    "pagination": {
-      "nextButton": "",
-      "itemsPerPage": 36
-    },
-    "loadMoreButton": "body > div.render-container.render-route-vtex-store-2-x-store-custom-mujer > div > div.vtex-store__template.bg-base > div > div:nth-child(3) > div > div:nth-child(6) > section > div.relative.justify-center.flex > div > div:nth-child(2) > section > div > div.pr0.items-stretch.flex-grow-1.flex > div > div:nth-child(6) > div > div > div > div > div > button > div",
     "baseUrls": {
-      "men": "https://www.sporting.com.ar/hombre",
-      "women": "https://www.sporting.com.ar/mujer"
+      "men": "https://www.sporting.com.ar/sporting/accesorios/cascos",
+      "women": "https://www.sporting.com.ar/sporting/accesorios/relojes"
     }
   }
 }

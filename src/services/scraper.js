@@ -10,13 +10,14 @@ class ScraperService {
 
   async initialize() {
     this.browser = await puppeteer.launch({
-      headless: "new",
-      defaultViewport: null,
-      args: ['--start-maximized']
+      headless: false, // Desactivar el modo headless
+      defaultViewport: { width: 1920, height: 1080 },
+      args: ['--window-size=1920,1080']
     });
     this.page = await this.browser.newPage();
-    this.page.setDefaultTimeout(60000);
-    this.page.setDefaultNavigationTimeout(60000);
+    // Aumentar los timeouts
+    await this.page.setDefaultNavigationTimeout(60000);
+    await this.page.setDefaultTimeout(30000);
   }
 
   async close() {
@@ -25,197 +26,177 @@ class ScraperService {
     }
   }
 
-  async wait(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
+  async scrollToBottomSlowly() {
+    const scrollHeight = await this.page.evaluate(() => document.body.scrollHeight);
+    const scrollStep = 500; // Paso de scroll
+    const scrollDelay = 500; // Retraso entre pasos de scroll en milisegundos
 
-  async clickLoadMoreButton(siteSelectors) {
-    try {
-      const loadMoreButton = await this.page.$(siteSelectors.loadMoreButton);
-      if (loadMoreButton) {
-        await loadMoreButton.click();
-        await this.wait(2000);
-        return true;
-      }
-      return false;
-    } catch (error) {
-      return false;
+    for (let scrollPosition = 0; scrollPosition < scrollHeight; scrollPosition += scrollStep) {
+      await this.page.evaluate((scrollPosition) => {
+        window.scrollTo(0, scrollPosition);
+      }, scrollPosition);
+      await new Promise(resolve => setTimeout(resolve, scrollDelay));
     }
   }
 
-  async scrollToBottom() {
-    try {
-      await this.page.evaluate(async () => {
-        await new Promise((resolve) => {
-          let totalHeight = 0;
-          const distance = 100;
-          const timer = setInterval(() => {
-            const scrollHeight = document.body.scrollHeight;
-            window.scrollBy(0, distance);
-            totalHeight += distance;
+  async scrollToRightSlowly() {
+    const scrollWidth = await this.page.evaluate(() => document.body.scrollWidth);
+    const scrollStep = 500; // Paso de scroll
+    const scrollDelay = 500; // Retraso entre pasos de scroll en milisegundos
 
-            if (totalHeight >= scrollHeight) {
-              clearInterval(timer);
-              resolve();
-            }
-          }, 100);
-        });
-      });
-      
-      // Esperar a que se carguen nuevos elementos
-      await this.wait(2000);
-      return true;
-    } catch (error) {
-      console.error('Error durante el scroll:', error);
-      return false;
+    for (let scrollPosition = 0; scrollPosition < scrollWidth; scrollPosition += scrollStep) {
+      await this.page.evaluate((scrollPosition) => {
+        window.scrollTo(scrollPosition, 0);
+      }, scrollPosition);
+      await new Promise(resolve => setTimeout(resolve, scrollDelay));
     }
   }
 
-  async getAllProducts(siteSelectors) {
-    const products = await this.page.evaluate((priceSelector, productLinkSelector, imageLinkSelector, titleSelector) => {
-      const results = [];
-      const container = document.querySelector('#gallery-layout-container');
-      if (!container) return results;
+  async getProductElements() {
+    return await this.page.evaluate(() => {
+      const products = Array.from(document.querySelectorAll('div[class^="vtex-search-result-3-x-galleryItem"]'));
+      const seenUrls = new Set();
+      const uniqueProducts = [];
 
-      const productElements = container.children;
-      
-      for (let i = 0; i < productElements.length; i++) {
+      products.forEach((product) => {
         try {
-          const element = productElements[i];
-          
-          const priceEl = element.querySelector('span[class*="currencyInteger"]');
-          const productLinkEl = element.querySelector('a');
-          const imageLinkEl = element.querySelector('img');
-          const titleEl = element.querySelector('h3');
+          const linkElement = product.document.querySelector('div[class^="vtex-product-summary-2-x-clearLink--product-card"]');
+          if (!linkElement) return;
 
-          if (priceEl && productLinkEl && imageLinkEl && titleEl) {
-            const priceText = priceEl.textContent.replace(/[^\d,]/g, '').replace(',', '.');
-            results.push({
-              title: titleEl.textContent.trim(),
-              price: parseFloat(priceText),
-              productLink: productLinkEl.href,
-              imageUrl: imageLinkEl.src
+          const url = linkElement.href;
+          console.log(url);
+          if (seenUrls.has(url)) return;
+          seenUrls.add(url);
+
+          // Obtener todos los componentes del precio
+          const integerPart1 = product.querySelector('span[class*="currencyInteger--summary"]')?.textContent.trim() || '';
+          const decimalPart = product.querySelector('span[class*="currencyGroup--summary"]')?.textContent.trim() || '';
+          const integerPart2 = product.querySelector('span[class*="currencyInteger--summary"]:nth-of-type(2)')?.textContent.trim() || '';
+
+          // Construir el precio completo
+          const fullPrice = `${integerPart1}${decimalPart}${integerPart2}`;
+
+          const imageElement = product.querySelector('img');
+          const titleElement = product.querySelector('h3');
+
+          if (fullPrice && imageElement && titleElement) {
+            uniqueProducts.push({
+              price: fullPrice,
+              link: url,
+              image: imageElement.src,
+              title: titleElement.textContent.trim()
             });
           }
         } catch (error) {
-          console.error(`Error procesando producto ${i}:`, error);
+          console.error('Error processing product:', error);
         }
-      }
-      return results;
-    }, siteSelectors.price, siteSelectors.productLink, siteSelectors.imageLink, siteSelectors.title);
+      });
 
-    console.log(`Productos encontrados en esta iteración: ${products.length}`);
-    if (products.length > 0) {
-      console.log('Ejemplo de producto:');
-    }
-
-    return products;
+      return uniqueProducts;
+    });
   }
 
   async scrapeProductsFromPage(url, gender, siteName) {
-    const siteSelectors = selectors[siteName];
-    const products = new Set();
-    let lastSize = 0;
-    let sameCountRetries = 0;
-    const maxRetries = 5; // Aumentado el número de reintentos
+    const products = new Map();
+    let lastHeight = 0;
+    let sameHeightCount = 0;
+    const MAX_SAME_HEIGHT = 1;
 
     try {
-      console.log(`Iniciando scraping de ${gender} en ${url}`);
+      console.log(`Navegando a ${url}`);
       await this.page.goto(url, { waitUntil: 'networkidle0' });
-      
-      // Esperar a que la página cargue completamente
-      await this.wait(5000);
-      
-      // Esperar al contenedor de productos
-      await this.page.waitForSelector('#gallery-layout-container');
+      await this.page.waitForSelector('div[class^="vtex-search-result-3-x-galleryItem"]');
 
-      while (true) {
-        // Hacer scroll y esperar a que se carguen más productos
-        await this.scrollToBottom();
-        await this.wait(2000);
+      while (sameHeightCount < MAX_SAME_HEIGHT) {
+        // Obtener la altura actual
+        const currentHeight = await this.page.evaluate(() => document.documentElement.scrollHeight);
 
-        // Intentar hacer click en "Mostrar más" si existe
-        const clickedLoadMore = await this.clickLoadMoreButton(siteSelectors);
-        if (clickedLoadMore) {
-          await this.wait(2000);
-        }
+        const productElements = await this.getProductElements();
+        console.log(`Encontrados ${productElements.length} productos en la página`);
 
-        // Obtener productos actuales
-        const currentProducts = await this.getAllProducts(siteSelectors);
-        
-        // Agregar productos nuevos al Set
-        currentProducts.forEach(product => {
-          if (product.productLink) {
-            products.add(JSON.stringify({
-              ...product,
+        // Procesar productos
+        productElements.forEach(elem => {
+          if (!products.has(elem.link)) {
+            // Convertir precio a número
+            const priceStr = elem.price.replace(/[^\d,]/g, '').replace(',', '.');
+            const price = parseFloat(priceStr);
+
+            products.set(elem.link, {
+              title: elem.title,
+              price: price,
+              productLink: elem.link,
+              imageUrl: elem.image,
               gender,
               source: siteName,
               sourceUrl: url,
               updatedAt: new Date()
-            }));
+            });
           }
         });
 
-        console.log(`Total de productos encontrados: ${products.size}`);
+        console.log(`Total de productos únicos acumulados: ${products.size}`);
 
-        // Verificar si encontramos nuevos productos
-        if (products.size === lastSize) {
-          sameCountRetries++;
-          console.log(`No se encontraron nuevos productos. Intento ${sameCountRetries}/${maxRetries}`);
-          
-          if (sameCountRetries >= maxRetries && !clickedLoadMore) {
-            console.log('No hay más productos para cargar.');
-            break;
-          }
+        // Scroll vertical y horizontal lentamente
+        await this.scrollToBottomSlowly();
+        await this.scrollToRightSlowly();
+        const newHeight = await this.page.evaluate(() => document.documentElement.scrollHeight);
+
+        if (newHeight === lastHeight) {
+          sameHeightCount++;
+          console.log(`Altura de página sin cambios. Intento ${sameHeightCount} de ${MAX_SAME_HEIGHT}`);
         } else {
-          lastSize = products.size;
-          sameCountRetries = 0;
+          sameHeightCount = 0;
+          lastHeight = newHeight;
         }
 
-        await this.wait(1000);
+        // Esperar un poco más después del scroll
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
 
-      const finalProducts = Array.from(products).map(p => JSON.parse(p));
-      console.log(`Total de productos scrapeados para ${gender}: ${finalProducts.length}`);
+      const finalProducts = Array.from(products.values());
+      console.log(`Scraping finalizado. Total de productos únicos: ${finalProducts.length}`);
       return finalProducts;
 
     } catch (error) {
-      console.error(`Error scraping page ${url}: ${error.message}`);
-      return Array.from(products).map(p => JSON.parse(p));
+      console.error(`Error scraping page ${url}:`, error);
+      return Array.from(products.values());
     }
   }
 
   async scrapeSite(siteName) {
+    const site = selectors[siteName];
     let allProducts = [];
 
     try {
       await this.initialize();
 
-      console.log(`Iniciando scraping de ${siteName}...`);
-      
+      // Scrapear productos de hombres
+      console.log('Iniciando scraping de productos de hombres...');
       const menProducts = await this.scrapeProductsFromPage(
-        selectors[siteName].baseUrls.men,
+        site.baseUrls.men,
         'men',
         siteName
       );
-      console.log(`Scrapeados ${menProducts.length} productos de hombre`);
-      
+      console.log(`Obtenidos ${menProducts.length} productos de hombres`);
+      allProducts = [...allProducts, ...menProducts];
+
+      // Scrapear productos de mujeres
+      console.log('Iniciando scraping de productos de mujeres...');
       const womenProducts = await this.scrapeProductsFromPage(
-        selectors[siteName].baseUrls.women,
+        site.baseUrls.women,
         'women',
         siteName
       );
-      console.log(`Scrapeados ${womenProducts.length} productos de mujer`);
+      console.log(`Obtenidos ${womenProducts.length} productos de mujeres`);
+      allProducts = [...allProducts, ...womenProducts];
 
-      allProducts = [...menProducts, ...womenProducts];
-      
       if (allProducts.length > 0) {
         console.log(`Guardando ${allProducts.length} productos en la base de datos...`);
         await Product.insertMany(allProducts);
       }
 
     } catch (error) {
-      console.error(`Error scraping site ${siteName}: ${error.message}`);
+      console.error(`Error scraping site ${siteName}:`, error);
     } finally {
       await this.close();
     }
@@ -225,3 +206,7 @@ class ScraperService {
 }
 
 module.exports = ScraperService;
+
+
+
+
