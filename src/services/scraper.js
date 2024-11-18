@@ -10,12 +10,11 @@ class ScraperService {
 
   async initialize() {
     this.browser = await puppeteer.launch({
-      headless: true, 
-      defaultViewport: { width: 1920, height: 1080 },
+      headless: true,
+      defaultViewport: { width: 1300, height: 1080 },
       args: ['--window-size=1920,1080']
     });
     this.page = await this.browser.newPage();
-    // Aumentar los timeouts
     await this.page.setDefaultNavigationTimeout(60000);
     await this.page.setDefaultTimeout(30000);
   }
@@ -28,8 +27,8 @@ class ScraperService {
 
   async scrollToBottomSlowly() {
     const scrollHeight = await this.page.evaluate(() => document.body.scrollHeight);
-    const scrollStep = 500; // Paso de scroll
-    const scrollDelay = 500; // Retraso entre pasos de scroll en milisegundos
+    const scrollStep = 500;
+    const scrollDelay = 500;
 
     for (let scrollPosition = 0; scrollPosition < scrollHeight; scrollPosition += scrollStep) {
       await this.page.evaluate((scrollPosition) => {
@@ -41,8 +40,8 @@ class ScraperService {
 
   async scrollToRightSlowly() {
     const scrollWidth = await this.page.evaluate(() => document.body.scrollWidth);
-    const scrollStep = 500; // Paso de scroll
-    const scrollDelay = 500; // Retraso entre pasos de scroll en milisegundos
+    const scrollStep = 500;
+    const scrollDelay = 500;
 
     for (let scrollPosition = 0; scrollPosition < scrollWidth; scrollPosition += scrollStep) {
       await this.page.evaluate((scrollPosition) => {
@@ -67,10 +66,7 @@ class ScraperService {
           if (seenUrls.has(url)) return;
           seenUrls.add(url);
 
-          // Obtener todos los componentes del precio
           const integerPart1 = product.querySelector('span[class*="currencyContainer--summary"]')?.textContent.trim() || '';
-
-          // Construir el precio completo
           const fullPrice = `${integerPart1}`;
 
           const imageElement = product.querySelector('img');
@@ -93,28 +89,29 @@ class ScraperService {
     });
   }
 
-  async scrapeProductsFromPage(url, gender, siteName) {
+  async scrapeProductsFromPage(baseUrl, gender, siteName) {
     const products = new Map();
-    let lastHeight = 0;
-    let sameHeightCount = 0;
-    const MAX_SAME_HEIGHT = 1;
+    let page = 1;
+    let hasMoreProducts = true;
 
     try {
-      console.log(`Navegando a ${url}`);
-      await this.page.goto(url, { waitUntil: 'networkidle0' });
-      await this.page.waitForSelector('div[class^="vtex-search-result-3-x-galleryItem"]');
+      while (hasMoreProducts) {
+        const url = `${baseUrl}?page=${page}`;
+        console.log(`Navegando a ${url}`);
+        await this.page.goto(url, { waitUntil: 'networkidle0' });
+        await this.page.waitForSelector('div[class^="vtex-search-result-3-x-galleryItem"]');
 
-      while (sameHeightCount < MAX_SAME_HEIGHT) {
-        // Obtener la altura actual
-        const currentHeight = await this.page.evaluate(() => document.documentElement.scrollHeight);
+        // Scroll hasta el final de la página actual
+        await this.scrollToBottomSlowly();
+        await this.scrollToRightSlowly();
 
+        // Obtener productos de la página actual
         const productElements = await this.getProductElements();
-        console.log(`Encontrados ${productElements.length} productos en la página`);
+        console.log(`Encontrados ${productElements.length} productos en la página ${page}`);
 
         // Procesar productos
         productElements.forEach(elem => {
           if (!products.has(elem.link)) {
-            // Convertir precio a número
             const priceStr = elem.price.replace(/[^\d,]/g, '').replace(',', '.');
             const price = parseFloat(priceStr);
 
@@ -133,21 +130,12 @@ class ScraperService {
 
         console.log(`Total de productos únicos acumulados: ${products.size}`);
 
-        // Scroll vertical y horizontal lentamente
-        await this.scrollToBottomSlowly();
-        await this.scrollToRightSlowly();
-        const newHeight = await this.page.evaluate(() => document.documentElement.scrollHeight);
-
-        if (newHeight === lastHeight) {
-          sameHeightCount++;
-          console.log(`Altura de página sin cambios. Intento ${sameHeightCount} de ${MAX_SAME_HEIGHT}`);
+        // Verificar si hay más productos
+        if (productElements.length === 0) {
+          hasMoreProducts = false;
         } else {
-          sameHeightCount = 0;
-          lastHeight = newHeight;
+          page++;
         }
-
-        // Esperar un poco más después del scroll
-        await new Promise(resolve => setTimeout(resolve, 2000));
       }
 
       const finalProducts = Array.from(products.values());
@@ -155,7 +143,7 @@ class ScraperService {
       return finalProducts;
 
     } catch (error) {
-      console.error(`Error scraping page ${url}:`, error);
+      console.error(`Error scraping page ${baseUrl}:`, error);
       return Array.from(products.values());
     }
   }
@@ -167,7 +155,6 @@ class ScraperService {
     try {
       await this.initialize();
 
-      // Scrapear productos de hombres
       console.log('Iniciando scraping de productos de hombres...');
       const menProducts = await this.scrapeProductsFromPage(
         site.baseUrls.men,
@@ -177,7 +164,6 @@ class ScraperService {
       console.log(`Obtenidos ${menProducts.length} productos de hombres`);
       allProducts = [...allProducts, ...menProducts];
 
-      // Scrapear productos de mujeres
       console.log('Iniciando scraping de productos de mujeres...');
       const womenProducts = await this.scrapeProductsFromPage(
         site.baseUrls.women,
@@ -203,7 +189,3 @@ class ScraperService {
 }
 
 module.exports = ScraperService;
-
-
-
-
